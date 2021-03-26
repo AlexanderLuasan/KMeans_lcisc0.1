@@ -1,0 +1,709 @@
+
+lib_folder porject{
+    path:"sv"
+}
+lib_folder main{
+    path:"lcisc_lib0.1"
+}
+lib_folder compiler{
+    path:"lcisc_compiler0.1"
+}
+
+user_values my_values{
+    path: "sv/my_values.sv"
+}
+
+
+operation Compare{
+    package:"SimpleComparison"
+}
+
+operation Add{
+    package:"Adder"
+}
+
+operation MulMap{
+    package:"MultiplyMap"
+}
+
+operation DifMap{
+    package:"DifferenceMap"
+}
+
+operation AccReduce{
+    package:"AccumulateReduce"
+}
+operation ArrSwap{
+    package:"ArraySwap"
+}
+operation Mov{
+    package:"Move"
+}
+operation ConInc{
+    package:"ConditionalIncrement"
+}
+operation AddMap{
+    package:"AdditionMap"
+}
+operation DivApply{
+    package:"DivisionApply"
+}
+
+operation Disp{
+    package:"disposition"
+}
+
+pipe_stage pipeStageA{
+    operations : [DivApply,AddMap,ConInc,ArrSwap,AccReduce,DifMap,MulMap,Add,Compare],
+    path : "sv"
+}
+
+
+dispatch dispatch_main{
+    lib:main,
+    module: "Dispatch",
+    stage:pipeStageA,
+    stage_function_name:"Dispatch_process",
+    inState: "inState",
+    outState:"outState"
+    
+}
+
+
+
+disposition disposition_main{
+    module: "Disposition",
+    operation: Disp,
+    inState: "inputState"
+}
+
+datainterface datainterface_main{
+    lib:main,
+    path: "DataInterface/DataInterface.sv",
+    module: "DataInterface"
+}
+
+scheduler scheduler_main{
+    module: "Scheduler2"
+}
+
+contextcache contextcache_main{
+    module: "ContextCache"
+}
+
+organizationunit organizationunit_main{
+    module: "OrganizationUnit"
+}
+
+
+interface contextcache_scheduler{
+    components: [contextcache_main,scheduler_main],
+    names:  ["waiting_thread_count","waiting_next_id","waiting_next_id2","requesting_thread","requested_thread_id"],
+    connections: [["waiting_thread_count","waiting_next_id","waiting_next_id2","requesting_thread","requested_thread_id"],
+                 ["waiting_thread_count","waiting_next_id","waiting_next_id2","requesting_thread","requested_thread_id"]]
+}
+
+interface datainterface_scheduler{
+    components: [datainterface_main,scheduler_main],
+    names: ["read_back"],
+    connections: [["read_back"],
+                  ["data_return"]]
+}
+
+interface halt_wire{
+    components: [datainterface_main,scheduler_main],
+    names: [halt]
+}
+
+interface org_unit_schedualer{
+    components: [organizationunit_main,scheduler_main],
+    names: [active,"read_return_to_org"],
+    connections:[["active","data_return"],
+                 ["operate","data_deliver"]]
+}
+
+interface contextcache_disposition{
+    components: [contextcache_main,disposition_main],
+    names: ["incoming_thread","incoming_control"],
+    connections: [["incoming_thread","incoming_control"],
+                  ["incoming_thread","incoming_control"]]
+}
+
+interface contextcache_org_unit{
+    components:[contextcache_main,organizationunit_main],
+    names: ["thread_to_org","thread_id_to_org"],
+    connections:[["requested_thread_return","out_thread_id"],
+                 ["thread","thread_id"]]
+}
+
+interface contextcache_user_insert{
+    components:[contextcache_main],
+    names:[user_insert,incoming_user_thread,incoming_user_status,user_insert_id]
+}
+
+interface read_write_controls{
+    components:[datainterface_main,disposition_main],
+    names:["read1","read2","write"]
+}
+
+
+interface clk_rst_wires{
+    components:[datainterface_main,scheduler_main,organizationunit_main,contextcache_main,dispatch_main,disposition_main],
+    names:[clk,rst]
+}
+
+interface pipe_start{
+    components:[organizationunit_main,dispatch_main],
+    names:["pipe_entrance"],
+    connections:[["execution_ev"],["inState"]]
+}
+
+
+
+pipeline all{
+    stages: [dispatch_main,pipeStageA,pipeStageA,pipeStageA,pipeStageA,pipeStageA,pipeStageA,disposition_main],
+    port_names: [clk,rst],
+    wire_names: [clk,rst]
+}
+
+
+program_model l{
+    target_section:all,
+    path:"sv"
+}
+
+
+global_template global_1 {
+
+    const cluster_start = 1;
+    const cluster_length = 3;
+
+    const point_start = 10;
+    const point_length = 101;
+
+    const second_point_array = 130;
+
+    const large_num = 9999999;
+    
+
+
+    32_t cluster_loop_track;
+    32_t point_loop_track;
+    32_t wait_count;
+    32_t cluster_difference;
+}
+
+data_template point_stuct{
+    const size = 3;
+    64_t mem_index;
+    vec_32(3) point;
+    32_t distance;
+    32_t closest;
+}
+data_template cluster_struct{
+    const size = 3;
+    64_t mem_index;
+    vec_32(3) cluster;
+    32_t point_count;
+}
+
+
+//start of the comparison loop
+//
+//
+// fun(point):
+//      local p = point
+//      closest = 9999
+//      for c in cluster
+//          closest = min(closest,dist(c,p))
+//      write closest
+//
+//passed in the read of the point
+//it should iterate over the clusters and record the closest  
+instruction comparion_loop_start(_loop_func,_run_func,_exit_func){
+    import point_stuct;
+    import global_1;
+    32_t closest_point = -10;
+    32_t closest_dist = global_1.large_num;
+    32_t temp_dist = global_1.large_num;
+    32_t end_val = cluster_start+cluster_length-1;
+    64_t read_address = cluster_start;
+
+    64_t loop_target = _loop_func;
+    64_t run_target = _run_func;
+    64_t exit_target = _exit_func;
+    64_t memory_index = second_point_array-point_start;
+    
+    vec_32(3) saved_point;
+
+    ArrSwap point_stuct.point, comparion_loop_start.saved_point, size, -2; //swap the point into the local memory if 2
+    
+    Add comparion_loop_start.memory_index.32[0], point_stuct.mem_index.32[0], comparion_loop_start.memory_index.32[0];
+
+
+    Disp sleep = 100, self_read = 100, self_read_address = read_address,
+        exec_conditional = 100, exec_info=pass, exec_id = run_target;
+
+}
+//this contorls the cluster loop for the labeling
+instruction loop_comparisons(){
+    import comparion_loop_start;
+    import cluster_struct;
+    
+    ConInc read_address.32[0],AltB,end_val,i(1),1;
+
+    Disp   
+        delete = -1,sleep = 1, self_read = 1, self_read_address = read_address,
+        exec_conditional = 1, exec_info=pass, exec_id = run_target,
+        fork_conditional = -1, fork_info=fork_other_pass, fork_id=exit_target;
+}
+
+//cluster is being read
+//returns back to the loop top
+//does the comparison and swap if lower
+instruction run_comparisons(){
+    import comparion_loop_start;
+    import cluster_struct;
+
+    DifMap cluster_struct.cluster, comparion_loop_start.saved_point, cluster_struct.size;
+    MulMap cluster_struct.cluster, cluster_struct.cluster, cluster_struct.size;
+    AccReduce cluster_struct.cluster, cluster_struct.size, temp_dist;
+    
+    //if(temp_dist<closest_dist)
+    Compare temp_dist, AltB, closest_dist, 2;
+        Add temp_dist,i(0),closest_dist,2;
+        Add read_address.32[0],i(0),closest_point,2;
+
+        
+    Disp sleep = -100, exec_conditional = 100, exec_info=pass, exec_id = loop_target;
+}
+
+instruction clean_up_comparison(){
+    import comparion_loop_start;
+    import point_stuct;
+    import global_1;
+
+    Add global_1.wait_count, i(1), global_1.wait_count;
+    Add comparion_loop_start.closest_dist,  i(0), point_stuct.distance;
+    Add comparion_loop_start.closest_point, i(0), point_stuct.closest;
+
+
+    Disp delete=100,write = 100,write_address =   comparion_loop_start.memory_index;
+}
+
+
+instruction for_loop_points(_help_target){
+    import global_1;
+    32_t end_val = point_length;
+    32_t arr_start = point_start-1;
+    64_t read_address = 0;
+    64_t help_function = _help_target;
+
+    Compare point_loop_track, AltB, end_val, 1;
+
+    Disp delete = -1,
+        exec_conditional = 1, exec_info = copy, exec_id = help_function,
+        fork_conditional = 1, fork_info = fork_me_copy, fork_sleep = 0;
+
+}
+
+instruction for_loop_points_helper(_loop_target){
+    import global_1;
+    32_t end_val = point_length;
+    32_t arr_start = point_start-1;
+    64_t read_address = 0;
+    64_t loop_function = _loop_target;
+
+
+    ConInc point_loop_track, AltB, end_val, i(1), 1;
+
+    Add point_loop_track,arr_start,read_address.32[0];
+
+    Disp delete = -1, sleep = 1, self_read = 1, self_read_address = read_address,
+        exec_conditional = 1, exec_info = copy, exec_id = loop_function,
+        fork_conditional = 1, fork_info = fork_me_copy, fork_sleep = 0;
+
+}
+
+//iterate over the second Arr
+//
+//for c in cluster
+//   if c.num == arr.num:
+//      accumulate
+//
+//
+
+//request the read for the data in arr1
+//check to see if the thing matchs
+//if it matches
+//  request to read the corisponding point in normal point array
+//  accumulate the point in the new cluseter saved localy
+//else move on to next point 
+//after loop
+//do divison and save the point to old location
+
+//given the cluster address thought read
+//starts a loop over the second array
+//accumulates matching addesses back into the local data
+instruction for_loop_cluster(_loop_target){
+    import global_1;
+
+    64_t read_address;
+    64_t loop_function = _loop_target;
+    32_t index = global_1.cluster_start-1;
+    32_t index_end = global_1.cluster_length + global_1.cluster_start-1;
+    
+    ConInc index,AltB,index_end,i(1),1;
+    Add index,i(0),read_address.32[0];
+    
+
+    Disp delete = -1, sleep = 1, self_read = 1, self_read_address = read_address,
+    exec_conditional = 1, exec_info = copy, exec_id = loop_function,
+    fork_conditional = 1, fork_info = fork_me_copy, fork_sleep = 0;
+}
+
+
+instruction cluster_accumulate_start(_loop_func,_run_func,_acc_point_func,_exit_func,_exit_2,_exit_3){
+    import point_stuct;
+    import global_1;
+    import cluster_struct;
+    64_t read_address = 0;
+    64_t next_run = 0;
+
+
+    32_t index = 0;
+    32_t end_index = global_1.point_length;
+    32_t second_arr_start = global_1.second_point_array - 1;
+    32_t point_arr_start = global_1.point_start - 1;
+
+    32_t second_arr_loop = _loop_func;
+    32_t switch_function = _run_func;
+    32_t acc_point_func = _acc_point_func;
+    32_t exit_target = _exit_func;
+    32_t exit_target2 = _exit_2;
+    32_t exit_target3 = _exit_3;
+    32_t memory_index = 0;
+    32_t point_count = 0;
+    32_t cluster_difference;
+    
+    vec_32(3) new_cluster;
+
+    //set the location we want to write back to
+    Add cluster_struct.mem_index,i(0),cluster_accumulate_start.memory_index;
+    Add i(0),second_arr_loop,next_run.32[0];
+
+    Disp exec_conditional = 100, exec_info=pass, exec_id = next_run;
+}
+    
+//no wait required(work queue)
+//travers the second arr
+//run the switch_function for each entry
+//else goto exit
+instruction cluster_accumulate_loop_second_array{
+    import cluster_accumulate_start;
+
+    //increment the second arr index
+    ConInc cluster_accumulate_start.index, AltB, cluster_accumulate_start.end_index, i(1), 1;
+
+    //if 1 goto switch_function and set read to second arr index
+    Add i(0), switch_function, next_run.32[0], 1;
+    Add second_arr_start,index,read_address.32[0],1;
+
+    //if not 1 goto exit and set read to cluster address
+    Add i(0), exit_target, next_run.32[0], -1;
+    Add i(0), memory_index,read_address.32[0],-1;
+
+    Disp   
+        sleep = 100, self_read = 100, self_read_address = read_address,
+        exec_conditional = 100, exec_info=pass, exec_id = next_run;
+
+}
+//given the read in seecond array
+//see if this matches the cluster
+//if so goto accumulate on the point array
+//else back to loop
+instruction cluster_accumulate_split_point_read{
+    import cluster_accumulate_start;
+    import point_stuct;
+    //if this is the closest cluster
+    Compare point_stuct.closest, AeqB, memory_index,2;
+
+    //set a new read address if 2
+    Add point_arr_start,index,read_address.32[0],2;
+
+    //if 2 then goto acc_point
+    Add acc_point_func,i(0),next_run.32[0],2;
+    //if not 2 then goto top of the loop continue 
+    Add second_arr_loop,i(0),next_run.32[0],-2;
+    
+    //if 2 we should read
+    Disp   
+        sleep = 2, self_read = 2, self_read_address = read_address,
+        exec_conditional = 100, exec_info=pass, exec_id = next_run;
+    
+}
+
+//given the point we want to accumulate
+//add map and count
+instruction cluster_accumulate_point_read{
+    import cluster_accumulate_start;
+    import point_stuct;
+    //accumulate the values of the point
+    AddMap new_cluster,point_stuct.point,point_stuct.size;
+    //add to the point counter
+    Add cluster_accumulate_start.point_count,i(1),cluster_accumulate_start.point_count;
+    //go back to the top of the loop
+    Add second_arr_loop,i(0),next_run.32[0];
+
+
+    Disp
+        exec_conditional = 100, exec_info=pass, exec_id = next_run;
+}
+//we have the cluster accumulated now we divide and save the point
+//expect that we are reading the correct cluster location
+//also set the wait_count in global
+instruction cluster_accumulate_exit{
+    import cluster_accumulate_start;
+    import cluster_struct;
+    import global_1;
+
+
+    DivApply new_cluster,cluster_accumulate_start.point_count,cluster_struct.size;
+    ArrSwap new_cluster,cluster_struct.cluster,cluster_struct.size;
+
+    //solve the difference between the clusters
+    DifMap new_cluster,cluster_struct.cluster,cluster_struct.size;
+    AccReduce new_cluster,cluster_struct.size,cluster_accumulate_start.cluster_difference;
+    //Add memory_index,i(0),read_address.32[0];
+
+    Add i(0),exit_target2,next_run.32[0];
+
+    Add i(0),cluster_accumulate_start.point_count,cluster_struct.point_count;
+
+    Compare cluster_accumulate_start.point_count, AgtB, i(0),3;
+    Disp
+        write = 3, write_back = 1,
+        exec_conditional = 100, exec_info=pass, exec_id = next_run;
+
+}
+//save the difference between clusters
+//this will be the exit condition
+instruction accumulate_difference {
+    import cluster_accumulate_start;
+    import cluster_struct;
+    import global_1;
+    //set the global cluster
+    Add global_1.cluster_difference, cluster_accumulate_start.cluster_difference,global_1.cluster_difference;
+    Add i(0),exit_target3,next_run.32[0];
+    Disp
+        exec_conditional = 100, exec_info=pass, exec_id = next_run;
+}
+
+instruction accumulate_wait_count_call_back(){
+    import global_1;
+    import cluster_accumulate_start;
+    Add cluster_accumulate_start.point_count,global_1.wait_count,global_1.wait_count;
+
+    Disp delete = 100;
+}
+
+
+//cluster accumulate for simultainus running
+
+
+//run for each cluster a thread-set
+//thread-set take_turns reading 
+//if the cluster value is set we can start to accumulate that to local memory
+//need to clear the value to some invalid number if it is your cluster
+//need to make sure everyone else 
+
+
+
+
+
+
+instruction tigger_wait_count_next(_trigger_func,_wait_amount,_next_func){
+    import global_1;
+
+    64_t next_func = _next_func;
+    64_t trigger_func = _trigger_func;
+    32_t wait_amount = _wait_amount;
+
+    //set wait count to zero on first cycle
+    Add i(0),i(0),global_1.wait_count,-2;
+
+    Compare i(0),AeqB,i(0),3,2;//set the 3rd flag after first run
+    Compare i(0),AeqB,i(0),2;//set the 2nd flag in the frist run
+    
+    Compare wait_amount,AeqB,global_1.wait_count,1; //see if we can exit
+
+
+    Disp 
+        exec_conditional = 1, exec_info=copy, exec_id = next_func,
+        fork_conditional = -3, fork_info = fork_other_copy, fork_sleep = 0, fork_id = trigger_func;
+
+}
+instruction tigger_wait_count_call_back(){
+    import global_1;
+    32_t completed_amount;
+    Add completed_amount,global_1.wait_count,global_1.wait_count;
+
+    Disp delete = 100;
+}
+
+
+instruction exit_or_loop(_next_step){
+    import global_1;
+
+    32_t difference = 0;
+    64_t next_func = _next_step;
+
+    ArrSwap difference,global_1.cluster_difference,1;
+    Compare difference, AeqB, i(0),1;
+
+    Disp exec_conditional = -1, exec_info=copy, exec_id = next_func, delete = 1;
+
+}
+
+instruction clear_global(_next_step){
+    import global_1;
+
+    64_t next_func = _next_step;
+
+    DifMap global_1.cluster_loop_track, global_1.cluster_loop_track, 8;
+
+    Disp exec_conditional = 100, exec_info=copy, exec_id = next_func; 
+}
+
+
+instruction nothing(){
+
+    Disp delete = 100;
+}
+instruction main(target){
+    64_t target_function = target;
+
+    //Add i(0),0,0;
+    Disp exec_conditional=100, exec_info = copy, exec_id = target_function;
+}
+
+
+
+
+
+
+program kmeans{
+    path : "sv",
+    instructions : {
+
+
+        "main":{
+            instruction:main,
+            args:["labeling_step"]
+        },
+
+
+        "labeling_step":{
+            instruction:tigger_wait_count_next,
+            args:["loop_for_point_comparison",101,"cluster_step"]
+        },
+
+        "cluster_step":{
+            instruction:tigger_wait_count_next,
+            args:["per_cluster_accumulate",101,"exit_or_loop"]
+        },
+
+        "exit_or_loop":{
+            instruction:exit_or_loop,
+            args:["clear_global"]
+        },
+        "clear_global":{
+            instruction:clear_global,
+            args:["labeling_step"]
+        },
+
+
+        //loop over point and spawn one instance for each point
+        "loop_for_point_comparison":{
+            instruction: for_loop_points,
+            args:["loop_for_point_comparison_help"]
+        },
+        "loop_for_point_comparison_help":{
+            instruction: for_loop_points_helper,
+            args:["comparion_loop_start"]
+        },
+
+        //cluster labeling loop per point
+        "comparion_loop_start":{
+            instruction:comparion_loop_start,
+            args:["loop_comparisons","run_comparisons","clean_up_comparison"]
+        },
+        "loop_comparisons":{
+            instruction:loop_comparisons
+        },
+        "run_comparisons":{
+            instruction:run_comparisons
+        },
+        "clean_up_comparison":{
+            instruction:clean_up_comparison
+        },
+
+        //cluster accumulate loop
+        "per_cluster_accumulate":{
+            instruction:for_loop_cluster,
+            args:["cluster_accumulate_start"]
+        },
+
+        "cluster_accumulate_start":{
+            instruction:cluster_accumulate_start,
+            args:["cluster_accumulate_loop_second_array","cluster_accumulate_split_point_read","cluster_accumulate_point_read",
+            "cluster_accumulate_exit","accumulate_difference","accumulate_wait_count_call_back"]
+        },
+
+        "cluster_accumulate_loop_second_array":{
+            instruction:cluster_accumulate_loop_second_array
+        },
+        "cluster_accumulate_split_point_read":{
+            instruction:cluster_accumulate_split_point_read
+        },
+        "cluster_accumulate_point_read":{
+            instruction:cluster_accumulate_point_read
+        },
+        "cluster_accumulate_exit":{
+            instruction:cluster_accumulate_exit
+        },
+        "accumulate_difference":{
+            instruction:accumulate_difference
+        },
+        "accumulate_wait_count_call_back":{
+            instruction:accumulate_wait_count_call_back
+        },
+
+
+        "nothing":{
+            instruction:nothing
+        }
+    },
+
+    execute : ["main"],
+
+    data : {
+        "i<101+10&&i>=10":{
+            template:point_stuct,
+            data_function:{
+                "mem_index":"i",
+                "point":["$floor($sin(2.0*3.14*i*(1.0/5.0))*100+(1.0/4.0)*$sin(i*i)*i)+200","$floor($cos(2.0*3.14*i*(1.0/5.0))*100+(1.0/4.0)*$cos(i*i)*i)+200","50"]
+            }
+        },
+        "i<3+1&&i>=1":{
+            template:cluster_struct,
+            data_function:{
+                "mem_index":"i",
+                "cluster":[150,150,50]
+            }
+        }
+        }
+
+    }
+
+}

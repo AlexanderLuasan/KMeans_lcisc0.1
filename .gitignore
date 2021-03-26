@@ -1,0 +1,14 @@
+.vscode
+sv
+kmean.cache
+kmean.hw
+kmean.ip_user_files
+kmean.sim
+.Xil
+
+vivado**.log
+vivado**.jou
+vivado**.str
+process_log.xlsx
+final_data.xlsx
+inital_data.xlsx
